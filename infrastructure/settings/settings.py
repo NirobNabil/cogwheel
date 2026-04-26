@@ -8,9 +8,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = False
     log_level: str = "INFO"
-    database_url: str = (
-        "postgresql+psycopg://hospitality:hospitality@localhost:5432/hospitality"
-    )
+    database_url: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -24,5 +22,7 @@ settings = get_settings()
 
 
 def sync_database_url(database_url: str) -> str:
-    """Return a sync-driver URL for tools such as Alembic."""
-    return database_url.replace("sqlite+aiosqlite://", "sqlite+pysqlite://", 1)
+    return (
+        database_url
+        .replace("+asyncpg", "")
+    )

@@ -14,3 +14,4 @@ pytest-cache-files-*/
 tests
 infrastructure/configuration/log_config.py
 infrastructure/configuration/middleware.py
+tasks.md

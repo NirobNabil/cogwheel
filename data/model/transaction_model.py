@@ -4,10 +4,11 @@ from pydantic import BaseModel
 from sqlalchemy import Date, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
+from data.model.audit_base_model import AuditBaseModel
 from infrastructure.configuration.db_config import Base
 
 
-class Transaction(Base):
+class Transaction(Base, AuditBaseModel):
     __tablename__ = "transactions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
