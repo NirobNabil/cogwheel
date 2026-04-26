@@ -2,12 +2,13 @@ import logging.config
 
 from fastapi import FastAPI
 
-# from infrastructure.configuration.log_config import LOGGING_CONFIG
-# from infrastructure.configuration.middleware import configure_middleware
+from infrastructure.configuration.exception_handlers import register_exception_handlers
+from infrastructure.configuration.log_config import LOGGING_CONFIG
+from infrastructure.configuration.middleware import configure_middleware
 from infrastructure.routes.api_router import router
 from infrastructure.settings.settings import settings
 
-# logging.config.dictConfig(LOGGING_CONFIG)
+logging.config.dictConfig(LOGGING_CONFIG)
 
 
 def create_app() -> FastAPI:
@@ -18,7 +19,8 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         openapi_url="/openapi.json",
     )
-    # configure_middleware(app)
+    register_exception_handlers(app)
+    configure_middleware(app)
     app.include_router(router)
 
     @app.get("/health", tags=["Health"])

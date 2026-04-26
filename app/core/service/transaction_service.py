@@ -1,6 +1,7 @@
 import csv
 from collections.abc import Iterable
 from io import TextIOWrapper
+import logging
 from typing import Any
 
 from fastapi import HTTPException, UploadFile, status
@@ -65,6 +66,12 @@ async def create_bulk_transactions(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Database write failed",
             ) from exc
+    else:
+        logging.warning("All items failed validation in bulk transaction creation")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="All items failed validation",
+        )
 
     return BulkTransactionResponse(
         inserted_count=len(created),
@@ -75,19 +82,27 @@ async def create_bulk_transactions(
 
 
 async def create_transactions_from_csv(db: AsyncSession, file: UploadFile) -> BulkTransactionResponse:
-    reader = csv.DictReader(
-        TextIOWrapper(file.file, encoding="utf-8-sig")
-    )
-    headers = set(reader.fieldnames or [])
-    missing_headers = sorted(REQUIRED_CSV_HEADERS - headers)
-    if missing_headers:
+    
+    try:
+        reader = csv.DictReader(
+            TextIOWrapper(file.file, encoding="utf-8-sig")
+        )
+        headers = set(reader.fieldnames or [])
+        missing_headers = sorted(REQUIRED_CSV_HEADERS - headers)
+        if missing_headers:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "message": "CSV file is missing required headers",
+                    "missing_headers": missing_headers,
+                },
+            )
+    except csv.Error as exc:
+        logging.error("Failed to parse CSV file", exc_info=exc)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "message": "CSV file is missing required headers",
-                "missing_headers": missing_headers,
-            },
-        )
+            detail=f"Failed to parse CSV file: {str(exc)}",
+        ) from exc
 
     valid: list[TransactionCreate] = []
     errors: list[IngestionError] = []
