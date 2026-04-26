@@ -1,4 +1,16 @@
 .codex
 .opencode
 .windsurf
+bruno
 demo
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.tmp/
+pytest-cache-files-*/
+*.db
+*.pyc
+tests
+infrastructure/configuration/log_config.py
+infrastructure/configuration/middleware.py
