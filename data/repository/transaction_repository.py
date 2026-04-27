@@ -53,6 +53,9 @@ async def create_transactions(
     db: AsyncSession,
     payloads: Sequence[TransactionCreate],
 ) -> int:
+    if not payloads:
+        return 0
+
     _records = [] 
     
     try:
@@ -76,6 +79,7 @@ async def create_transactions(
     try:
         rows = await db.execute(stmt)
         records = rows.scalars().all()
+        await db.commit()
     
         return len(records)
     except SQLAlchemyError as e:
@@ -179,6 +183,8 @@ async def list_transactions(
     category: str | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
+    page: int = 1,
+    page_size: int = 50
 ) -> list[TransactionRet]:
     try:
         stmt = select(Transaction)
@@ -189,6 +195,7 @@ async def list_transactions(
         if end_date:
             stmt = stmt.where(Transaction.date <= end_date)
         stmt = stmt.order_by(Transaction.date.asc(), Transaction.id.asc())
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         result = await db.execute(stmt)
         return [TransactionRet.model_validate(row) for row in result.scalars().all()]
     except SQLAlchemyError as exc:

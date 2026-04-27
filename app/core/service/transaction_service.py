@@ -86,6 +86,8 @@ async def list_transactions(
     category: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    page: int = 1,
+    page_size: int = 50
 ):
     try:
         parsed_start_date = parse_transaction_date(start_date) if start_date else None
@@ -105,4 +107,6 @@ async def list_transactions(
         category=normalized_category,
         start_date=parsed_start_date,
         end_date=parsed_end_date,
+        page=page,
+        page_size=page_size
     )

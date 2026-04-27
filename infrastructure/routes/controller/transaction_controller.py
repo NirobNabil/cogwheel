@@ -24,7 +24,7 @@ async def create_transaction(payload: TransactionCreate, db: AsyncSession = Depe
     status_code=status.HTTP_201_CREATED
 )
 async def create_bulk_transactions(
-    payload: list[TransactionCreate] = Body(...),
+    payload: list[TransactionCreate] = Body(..., min_length=1),
     db: AsyncSession = Depends(get_db),
 ):
     return await transaction_service.create_bulk_transactions(db, payload)
@@ -46,6 +46,8 @@ async def list_transactions(
     category: str | None = Query(default=None),
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
     return await transaction_service.list_transactions(
@@ -53,4 +55,6 @@ async def list_transactions(
         category=category,
         start_date=start_date,
         end_date=end_date,
+        page=page,
+        page_size=page_size
     )
