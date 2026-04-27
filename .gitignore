@@ -6,6 +6,7 @@ demo
 .env*
 !.env.example
 !.env.docker.example
+!.env.docker
 .venv/
 __pycache__/
 .pytest_cache/
