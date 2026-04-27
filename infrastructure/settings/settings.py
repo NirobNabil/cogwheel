@@ -24,5 +24,5 @@ settings = get_settings()
 def sync_database_url(database_url: str) -> str:
     return (
         database_url
-        .replace("+asyncpg", "")
+        .replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
     )

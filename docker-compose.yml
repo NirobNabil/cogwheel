@@ -1,16 +1,14 @@
 services:
   postgres:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: hospitality
-      POSTGRES_USER: hospitality
-      POSTGRES_PASSWORD: hospitality
+    env_file:
+      - .env.docker
     ports:
       - "5432:5432"
     volumes:
       - hospitality_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hospitality -d hospitality"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -19,12 +17,8 @@ services:
     build:
       context: .
     image: fastapi-app
-    environment:
-      APP_NAME: Hospitality Analytics Platform
-      APP_VERSION: 0.1.0
-      DEBUG: "false"
-      LOG_LEVEL: INFO
-      DATABASE_URL: postgresql+psycopg://hospitality:hospitality@postgres:5432/hospitality
+    env_file:
+      - .env.docker
     depends_on:
       postgres:
         condition: service_healthy
