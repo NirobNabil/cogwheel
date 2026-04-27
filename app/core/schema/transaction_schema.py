@@ -74,6 +74,13 @@ class TransactionResponse(BaseModel):
         return format_transaction_date(value)
 
 
+class TransactionsResponsePaginated(BaseModel):
+    transactions: list[TransactionResponse]
+    total: int
+    page: int
+    page_size: int
+
+
 class IngestionError(BaseModel):
     row: int | None = None
     errors: list[str]

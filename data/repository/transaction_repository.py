@@ -6,13 +6,12 @@ from datetime import date
 
 from fastapi import status, HTTPException
 from pydantic_core import ValidationError
-from sqlalchemy import Select, insert, desc, func, select
+from sqlalchemy import insert, desc, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.schema.transaction_schema import IngestionError, TransactionCreate
 from app.core.schema.analytics_schema import TopPropertyRevenue
-from app.core.service.transaction_service import _format_validation_errors
 from data.model.transaction_model import Transaction, TransactionRet
 
 
@@ -92,6 +91,16 @@ async def create_transactions(
 
 
 REQUIRED_CSV_HEADERS = {"property_name", "category", "price", "quantity", "date"}
+
+
+def _format_validation_errors(exc: ValidationError) -> list[str]:
+    messages: list[str] = []
+    for error in exc.errors():
+        location = ".".join(str(part) for part in error.get("loc", []))
+        message = error.get("msg", "Invalid value")
+        messages.append(f"{location}: {message}" if location else message)
+    return messages
+
 
 async def create_transactions_from_csv(
     db: AsyncSession,
@@ -185,19 +194,25 @@ async def list_transactions(
     end_date: date | None = None,
     page: int = 1,
     page_size: int = 50
-) -> list[TransactionRet]:
+) -> tuple[list[TransactionRet], int]:
     try:
-        stmt = select(Transaction)
+        filters = []
         if category:
-            stmt = stmt.where(Transaction.category == category)
+            filters.append(Transaction.category == category)
         if start_date:
-            stmt = stmt.where(Transaction.date >= start_date)
+            filters.append(Transaction.date >= start_date)
         if end_date:
-            stmt = stmt.where(Transaction.date <= end_date)
+            filters.append(Transaction.date <= end_date)
+
+        count_stmt = select(func.count()).select_from(Transaction).where(*filters)
+        total = int(await db.scalar(count_stmt) or 0)
+
+        stmt = select(Transaction).where(*filters)
         stmt = stmt.order_by(Transaction.date.asc(), Transaction.id.asc())
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         result = await db.execute(stmt)
-        return [TransactionRet.model_validate(row) for row in result.scalars().all()]
+        transactions = [TransactionRet.model_validate(row) for row in result.scalars().all()]
+        return transactions, total
     except SQLAlchemyError as exc:
         logging.error("Failed to fetch transactions from db", exc_info=exc)
         raise

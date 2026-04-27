@@ -1,9 +1,13 @@
-from typing import Any
-
 from fastapi import APIRouter, Body, Depends, File, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.schema.transaction_schema import BulkCSVTransactionResponse, BulkTransactionResponse, TransactionCreate, TransactionResponse
+from app.core.schema.transaction_schema import (
+    BulkCSVTransactionResponse,
+    BulkTransactionResponse,
+    TransactionCreate,
+    TransactionResponse,
+    TransactionsResponsePaginated,
+)
 from app.core.service import transaction_service
 from infrastructure.configuration.db_config import get_db
 
@@ -41,7 +45,7 @@ async def upload_csv_transactions(
     return await transaction_service.create_transactions_from_csv(db, file)
 
 
-@router.get("/transactions", response_model=list[TransactionResponse])
+@router.get("/transactions", response_model=TransactionsResponsePaginated)
 async def list_transactions(
     category: str | None = Query(default=None),
     start_date: str | None = Query(default=None),

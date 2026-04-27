@@ -1,33 +1,20 @@
 import csv
-from collections.abc import Iterable
 from io import TextIOWrapper
 import logging
-from typing import Any
 
 from fastapi import HTTPException, UploadFile, status
-from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.schema.transaction_schema import (
+    BulkCSVTransactionResponse,
     BulkTransactionResponse,
-    IngestionError,
     TransactionCreate,
+    TransactionResponse,
+    TransactionsResponsePaginated,
     parse_transaction_date,
 )
-from data.model.transaction_model import TransactionRet
 from data.repository import transaction_repository
-
-from app.core.schema.transaction_schema import TransactionResponse, BulkCSVTransactionResponse, BulkTransactionResponse
-
-
-def _format_validation_errors(exc: ValidationError) -> list[str]:
-    messages: list[str] = []
-    for error in exc.errors():
-        location = ".".join(str(part) for part in error.get("loc", []))
-        message = error.get("msg", "Invalid value")
-        messages.append(f"{location}: {message}" if location else message)
-    return messages
 
 
 async def create_transaction(db: AsyncSession, payload: TransactionCreate):
@@ -88,7 +75,7 @@ async def list_transactions(
     end_date: str | None = None,
     page: int = 1,
     page_size: int = 50
-):
+) -> TransactionsResponsePaginated:
     try:
         parsed_start_date = parse_transaction_date(start_date) if start_date else None
         parsed_end_date = parse_transaction_date(end_date) if end_date else None
@@ -102,11 +89,20 @@ async def list_transactions(
         )
 
     normalized_category = category.strip() if category else None
-    return await transaction_repository.list_transactions(
+    transactions, total = await transaction_repository.list_transactions(
         db,
         category=normalized_category,
         start_date=parsed_start_date,
         end_date=parsed_end_date,
         page=page,
         page_size=page_size
+    )
+    return TransactionsResponsePaginated(
+        transactions=[
+            TransactionResponse.model_validate(transaction)
+            for transaction in transactions
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
     )
