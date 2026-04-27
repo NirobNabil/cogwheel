@@ -75,13 +75,14 @@ class TransactionResponse(BaseModel):
 
 
 class IngestionError(BaseModel):
-    index: int | None = None
     row: int | None = None
     errors: list[str]
 
 
 class BulkTransactionResponse(BaseModel):
     inserted_count: int
+
+class BulkCSVTransactionResponse(BaseModel):
+    inserted_count: int
     failed_count: int
-    created: list[TransactionResponse]
     errors: list[IngestionError]

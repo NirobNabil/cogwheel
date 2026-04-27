@@ -15,11 +15,10 @@ from app.core.schema.transaction_schema import (
     TransactionCreate,
     parse_transaction_date,
 )
+from data.model.transaction_model import TransactionRet
 from data.repository import transaction_repository
 
-from app.core.schema.transaction_schema import TransactionResponse
-
-REQUIRED_CSV_HEADERS = {"property_name", "category", "price", "quantity", "date"}
+from app.core.schema.transaction_schema import TransactionResponse, BulkCSVTransactionResponse, BulkTransactionResponse
 
 
 def _format_validation_errors(exc: ValidationError) -> list[str]:
@@ -31,20 +30,10 @@ def _format_validation_errors(exc: ValidationError) -> list[str]:
     return messages
 
 
-def _validate_items(items: Iterable[dict[str, Any]]) -> tuple[list[TransactionCreate], list[IngestionError]]:
-    valid: list[TransactionCreate] = []
-    errors: list[IngestionError] = []
-    for index, item in enumerate(items):
-        try:
-            valid.append(TransactionCreate.model_validate(item))
-        except ValidationError as exc:
-            errors.append(IngestionError(index=index, errors=_format_validation_errors(exc)))
-    return valid, errors
-
-
 async def create_transaction(db: AsyncSession, payload: TransactionCreate):
     try:
-        return await transaction_repository.create_transaction(db, payload)
+        data = await transaction_repository.create_transaction(db, payload)
+        return TransactionResponse.model_validate(data)
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -54,49 +43,22 @@ async def create_transaction(db: AsyncSession, payload: TransactionCreate):
 
 async def create_bulk_transactions(
     db: AsyncSession,
-    items: list[dict[str, Any]],
+    items: list[TransactionCreate],
 ) -> BulkTransactionResponse:
-    valid, errors = _validate_items(items)
-    created = []
-    if valid:
-        try:
-            created = await transaction_repository.create_transactions(db, valid)
-        except SQLAlchemyError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Database write failed",
-            ) from exc
-    else:
-        logging.warning("All items failed validation in bulk transaction creation")
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="All items failed validation",
-        )
+
+    created_count = await transaction_repository.create_transactions(db, items)
 
     return BulkTransactionResponse(
-        inserted_count=len(created),
-        failed_count=len(errors),
-        created= [TransactionResponse.model_validate(record) for record in created],
-        errors=errors,
+        inserted_count=created_count,
     )
 
 
-async def create_transactions_from_csv(db: AsyncSession, file: UploadFile) -> BulkTransactionResponse:
+async def create_transactions_from_csv(db: AsyncSession, file: UploadFile) -> BulkCSVTransactionResponse:
     
     try:
         reader = csv.DictReader(
             TextIOWrapper(file.file, encoding="utf-8-sig")
         )
-        headers = set(reader.fieldnames or [])
-        missing_headers = sorted(REQUIRED_CSV_HEADERS - headers)
-        if missing_headers:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail={
-                    "message": "CSV file is missing required headers",
-                    "missing_headers": missing_headers,
-                },
-            )
     except csv.Error as exc:
         logging.error("Failed to parse CSV file", exc_info=exc)
         raise HTTPException(
@@ -104,29 +66,17 @@ async def create_transactions_from_csv(db: AsyncSession, file: UploadFile) -> Bu
             detail=f"Failed to parse CSV file: {str(exc)}",
         ) from exc
 
-    valid: list[TransactionCreate] = []
-    errors: list[IngestionError] = []
-    for row_number, row in enumerate(reader, start=2):
-        payload = {header: row.get(header) for header in REQUIRED_CSV_HEADERS}
-        try:
-            valid.append(TransactionCreate.model_validate(payload))
-        except ValidationError as exc:
-            errors.append(IngestionError(row=row_number, errors=_format_validation_errors(exc)))
+    created_count, errors = await transaction_repository.create_transactions_from_csv(db, reader)        
 
-    created = []
-    if valid:
-        try:
-            created = await transaction_repository.create_transactions(db, valid)
-        except SQLAlchemyError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Database write failed",
-            ) from exc
+    if created_count == 0 and errors:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Failed to ingest any records from the CSV file",
+        )
 
-    return BulkTransactionResponse(
-        inserted_count=len(created),
+    return BulkCSVTransactionResponse(
+        inserted_count=created_count,
         failed_count=len(errors),
-        created=[TransactionResponse.model_validate(record) for record in created],
         errors=errors,
     )
 

@@ -1,13 +1,18 @@
+from collections.abc import Callable
+from csv import DictReader
 import logging
 from collections.abc import Sequence
 from datetime import date
 
+from fastapi import status, HTTPException
+from pydantic_core import ValidationError
 from sqlalchemy import Select, insert, desc, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.schema.transaction_schema import TransactionCreate
+from app.core.schema.transaction_schema import IngestionError, TransactionCreate
 from app.core.schema.analytics_schema import TopPropertyRevenue
+from app.core.service.transaction_service import _format_validation_errors
 from data.model.transaction_model import Transaction, TransactionRet
 
 
@@ -47,7 +52,7 @@ async def create_transaction(db: AsyncSession, payload: TransactionCreate) -> Tr
 async def create_transactions(
     db: AsyncSession,
     payloads: Sequence[TransactionCreate],
-) -> list[TransactionRet]:
+) -> int:
     _records = [] 
     
     try:
@@ -72,11 +77,101 @@ async def create_transactions(
         rows = await db.execute(stmt)
         records = rows.scalars().all()
     
-        return [ TransactionRet.model_validate(record) for record in records ]
+        return len(records)
     except SQLAlchemyError as e:
         logging.error("Failed to create transactions in db", exc_info=e)
         await db.rollback()
-        raise
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database write failed for a batch of records",
+        ) from e
+
+
+REQUIRED_CSV_HEADERS = {"property_name", "category", "price", "quantity", "date"}
+
+async def create_transactions_from_csv(
+    db: AsyncSession,
+    reader: DictReader,
+    validation_error_formatter: Callable[[ValidationError], list[str]] = _format_validation_errors,
+) -> tuple[int, list[IngestionError]]:
+
+    # used for staging a batch of insert in the db transaction
+    async def stage_data(payloads: list[TransactionCreate]) -> int:
+        
+        _records = []
+        try:
+            for payload in payloads:
+                transaction = _to_transaction_model(payload)
+                _records.append({
+                    "property_name": transaction.property_name,
+                    "category": transaction.category,
+                    "price": transaction.price,
+                    "quantity": transaction.quantity,
+                    "date": transaction.date,
+                })
+        except Exception as e:
+            logging.error("Failed to convert row into transaction models")
+            raise
+
+        try:
+            stmt = insert(Transaction).values(_records).returning(Transaction)
+            rows = await db.execute(stmt)
+            records = rows.scalars().all()
+
+            if len(records) != len(payloads):
+                logging.error("Mismatch in number of records created and payloads staged")
+                raise Exception("Database write failed for a batch of records")
+        
+            return len(records)
+        except SQLAlchemyError as e:
+            logging.error("Failed to create transactions in db")
+            raise
+    
+    valid: list[TransactionCreate] = []
+    errors: list[IngestionError] = []
+    created_count: int = 0
+    BATCH_SIZE = 2000
+    
+    headers = set(reader.fieldnames or [])
+    missing_headers = sorted(REQUIRED_CSV_HEADERS - headers)
+    if missing_headers:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "message": "CSV file is missing required headers",
+                "missing_headers": missing_headers,
+            },
+        )
+    
+    try:
+        for row_number, row in enumerate(reader, start=2):
+            row_d = {header: row.get(header) for header in REQUIRED_CSV_HEADERS}
+            try:
+                valid.append(TransactionCreate.model_validate(row_d))
+            except ValidationError as exc:
+                errors.append(IngestionError(row=row_number, errors=validation_error_formatter(exc)))
+        
+            # batch size is 2000
+            # it is guaranteed that created_count will be in sync with len(valid) because otherwise stage_data would through exception
+            if len(valid) - created_count >= BATCH_SIZE:
+                created_count += await stage_data(valid[created_count:created_count + BATCH_SIZE])
+
+        if len(valid) != created_count:
+            created_count += await stage_data(valid[created_count:])
+        
+        await db.commit()
+
+    except Exception as exc:
+        logging.error("Failed to process CSV file", exc_info=exc)
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process CSV file",
+        ) from exc
+    
+
+    return created_count, errors
+
 
 
 async def list_transactions(
