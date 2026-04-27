@@ -4,6 +4,8 @@
 bruno
 demo
 .env*
+!.env.example
+!.env.docker.example
 .venv/
 __pycache__/
 .pytest_cache/
