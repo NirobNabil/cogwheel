@@ -4,6 +4,10 @@
 bruno
 demo
 .env
+.env.*
+!.env.example
+!.env.docker.example
+!.env.test.example
 .venv/
 __pycache__/
 .pytest_cache/
@@ -11,5 +15,4 @@ __pycache__/
 pytest-cache-files-*/
 *.db
 *.pyc
-tests
 tasks.md
